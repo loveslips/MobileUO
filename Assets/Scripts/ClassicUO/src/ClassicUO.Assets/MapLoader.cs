@@ -379,6 +379,20 @@ namespace ClassicUO.Assets
             int fileNumber = -1;
             bool isuop = file is UOFileUop;
 
+            // MINIMAL FIX: Get base memory addresses
+            ulong mapBaseAddress = 0;
+            ulong staticIdxBaseAddress = 0;
+            ulong staticBaseAddress = 0;
+
+            if (file is MMFileReader mmFile)
+                mapBaseAddress = mmFile.StartAddressAsUInt64;
+
+            if (fileidx is MMFileReader mmIdxFile)
+                staticIdxBaseAddress = mmIdxFile.StartAddressAsUInt64;
+
+            if (staticfile is MMFileReader mmStaticFile)
+                staticBaseAddress = mmStaticFile.StartAddressAsUInt64;
+
             for (int block = 0; block < maxblockcount; block++)
             {
                 int blocknum = block;
@@ -400,18 +414,33 @@ namespace ClassicUO.Assets
                     }
                 }
 
-                var mapPos = uopoffset + (ulong)(blocknum * mapblocksize);
+                // MINIMAL FIX: Calculate memory address instead of file position
+                var mapPos = mapBaseAddress != 0 ? mapBaseAddress + uopoffset + (ulong)(blocknum * mapblocksize) : 0;
                 var staticPos = 0ul;
                 var staticCount = 0u;
 
-                fileidx.Seek(block * staticidxblocksize, SeekOrigin.Begin);
-
-                var st = fileidx.Read<StaidxBlock>();
-
-                if (st.Size > 0 && st.Position != 0xFFFF_FFFF)
+                // MINIMAL FIX: Read staidx using pointer if available, otherwise fallback to file I/O
+                if (staticIdxBaseAddress != 0)
                 {
-                    staticPos = st.Position;
-                    staticCount = Math.Min(1024, (uint)(st.Size / staticblocksize));
+                    StaidxBlock* stIdx = (StaidxBlock*)(staticIdxBaseAddress + (ulong)(block * staticidxblocksize));
+
+                    if (stIdx->Size > 0 && stIdx->Position != 0xFFFF_FFFF)
+                    {
+                        staticPos = staticBaseAddress != 0 ? staticBaseAddress + stIdx->Position : 0;
+                        staticCount = Math.Min(1024, (uint)(stIdx->Size / staticblocksize));
+                    }
+                }
+                else
+                {
+                    // Fallback to file I/O (for non-memory-mapped files)
+                    fileidx.Seek(block * staticidxblocksize, SeekOrigin.Begin);
+                    var st = fileidx.Read<StaidxBlock>();
+
+                    if (st.Size > 0 && st.Position != 0xFFFF_FFFF)
+                    {
+                        staticPos = st.Position;
+                        staticCount = Math.Min(1024, (uint)(st.Size / staticblocksize));
+                    }
                 }
 
                 ref var data = ref BlockData[i][block];

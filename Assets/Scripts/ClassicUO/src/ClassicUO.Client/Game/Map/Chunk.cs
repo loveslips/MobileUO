@@ -65,71 +65,75 @@ namespace ClassicUO.Game.Map
                 return;
             }
 
-            im.MapFile.Seek((long)im.MapAddress, System.IO.SeekOrigin.Begin);
-            // MobileUO: TODO: InlineArray feature is not available in Unity's C#
-            var block = im.MapFile.ReadMapBlock();//Read<MapBlock>();
-
-            var cells = block.Cells;
             int bx = X << 3;
             int by = Y << 3;
 
-            for (int y = 0; y < 8; ++y)
+            // PERFORMANCE FIX: Use direct pointer access instead of file I/O
+            if (im.MapAddress != 0)
             {
-                int pos = y << 3;
-                ushort tileY = (ushort)(by + y);
+                // Cast the memory address to a pointer - no file I/O!
+                byte* mapPtr = (byte*)im.MapAddress;
 
-                for (int x = 0; x < 8; ++x, ++pos)
+                // Skip 4-byte header to get to cells
+                MapCells* cells = (MapCells*)(mapPtr + 4);
+
+                for (int y = 0; y < 8; ++y)
                 {
-                    ushort tileID = (ushort)(cells[pos].TileID & 0x3FFF);
+                    int pos = y << 3;
+                    ushort tileY = (ushort)(by + y);
 
-                    sbyte z = cells[pos].Z;
-
-                    Land land = Land.Create(_world, tileID);
-
-                    ushort tileX = (ushort)(bx + x);
-
-                    land.ApplyStretch(map, tileX, tileY, z);
-                    land.X = tileX;
-                    land.Y = tileY;
-                    land.Z = z;
-                    land.UpdateScreenPosition();
-
-                    AddGameObject(land, x, y);
-                }
-            }
-
-            if (im.StaticAddress != 0 && im.StaticCount > 0)
-            {
-                var staticsBlockBuffer = ArrayPool<StaticsBlock>.Shared.Rent((int)im.StaticCount);
-                var staticsSpan = staticsBlockBuffer.AsSpan(0, (int)im.StaticCount);
-                im.StaticFile.Seek((long)im.StaticAddress, System.IO.SeekOrigin.Begin);
-                im.StaticFile.Read(MemoryMarshal.AsBytes(staticsSpan));
-
-                foreach (ref var sb in staticsSpan)
-                {
-                    if (sb.Color != 0 && sb.Color != 0xFFFF)
+                    for (int x = 0; x < 8; ++x, ++pos)
                     {
-                        int pos = (sb.Y << 3) + sb.X;
+                        ushort tileID = (ushort)(cells[pos].TileID & 0x3FFF);
+                        sbyte z = cells[pos].Z;
 
-                        if (pos >= 64)
-                        {
-                            continue;
-                        }
+                        Land land = Land.Create(_world, tileID);
 
-                        Static staticObject = Static.Create(_world, sb.Color, sb.Hue, pos);
-                        staticObject.X = (ushort)(bx + sb.X);
-                        staticObject.Y = (ushort)(by + sb.Y);
-                        staticObject.Z = sb.Z;
-                        staticObject.UpdateScreenPosition();
+                        ushort tileX = (ushort)(bx + x);
 
-                        AddGameObject(staticObject, sb.X, sb.Y);
+                        land.ApplyStretch(map, tileX, tileY, z);
+                        land.X = tileX;
+                        land.Y = tileY;
+                        land.Z = z;
+                        land.UpdateScreenPosition();
+
+                        AddGameObject(land, x, y);
                     }
                 }
+            }
 
-                ArrayPool<StaticsBlock>.Shared.Return(staticsBlockBuffer);
+            // PERFORMANCE FIX: Direct pointer access for statics
+            if (im.StaticAddress != 0 && im.StaticCount > 0)
+            {
+                StaticsBlock* sb = (StaticsBlock*)im.StaticAddress;
+
+                if (sb != null)
+                {
+                    int count = (int)im.StaticCount;
+
+                    for (int i = 0; i < count; ++i, ++sb)
+                    {
+                        if (sb->Color != 0 && sb->Color != 0xFFFF)
+                        {
+                            int pos = (sb->Y << 3) + sb->X;
+
+                            if (pos >= 64)
+                            {
+                                continue;
+                            }
+
+                            Static staticObject = Static.Create(_world, sb->Color, sb->Hue, pos);
+                            staticObject.X = (ushort)(bx + sb->X);
+                            staticObject.Y = (ushort)(by + sb->Y);
+                            staticObject.Z = sb->Z;
+                            staticObject.UpdateScreenPosition();
+
+                            AddGameObject(staticObject, sb->X, sb->Y);
+                        }
+                    }
+                }
             }
         }
-
 
         private ref IndexMap GetIndex(int map)
         {

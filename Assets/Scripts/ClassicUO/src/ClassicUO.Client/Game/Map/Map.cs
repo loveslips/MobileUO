@@ -104,7 +104,7 @@ namespace ClassicUO.Game.Map
             return GetChunk(x, y, load)?.GetHeadObject(x % 8, y % 8);
         }
 
-        public sbyte GetTileZ(int x, int y)
+        public unsafe sbyte GetTileZ(int x, int y)
         {
             if (x < 0 || y < 0)
             {
@@ -113,7 +113,7 @@ namespace ClassicUO.Game.Map
 
             ref var blockIndex = ref GetIndex(x >> 3, y >> 3);
 
-            if (!blockIndex.IsValid())
+            if (!blockIndex.IsValid() || blockIndex.MapAddress == 0)
             {
                 return -125;
             }
@@ -121,12 +121,11 @@ namespace ClassicUO.Game.Map
             int mx = x % 8;
             int my = y % 8;
 
-            unsafe
-            {
-                blockIndex.MapFile.Seek((long)blockIndex.MapAddress, System.IO.SeekOrigin.Begin);
-                // MobileUO: TODO: InlineArray feature is not available in Unity's C#
-                return blockIndex.MapFile.ReadMapBlock()/*.Read<MapBlock>()*/.Cells[(my << 3) + mx].Z;
-            }
+            // PERFORMANCE FIX: Direct pointer access - no file I/O
+            byte* mapPtr = (byte*)blockIndex.MapAddress;
+            MapCells* cells = (MapCells*)(mapPtr + 4); // Skip 4-byte header
+
+            return cells[(my << 3) + mx].Z;
         }
 
         public void GetMapZ(int x, int y, out sbyte groundZ, out sbyte staticZ)

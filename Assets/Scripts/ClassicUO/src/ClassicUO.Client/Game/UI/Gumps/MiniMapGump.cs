@@ -205,10 +205,10 @@ namespace ClassicUO.Game.UI.Gumps
         }
 
         private unsafe void CreateMiniMapTexture(
-            Texture2D texture,
-            Rectangle bounds,
-            bool force = false
-        )
+    Texture2D texture,
+    Rectangle bounds,
+    bool force = false
+)
         {
             ushort lastX = World.Player.X;
             ushort lastY = World.Player.Y;
@@ -283,111 +283,123 @@ namespace ClassicUO.Game.UI.Gumps
                     }
 
                     staticsZ.Fill(d);
-                    indexMap.StaticFile.Seek((long)indexMap.StaticAddress, System.IO.SeekOrigin.Begin);
-                    indexMap.MapFile.Seek((long)indexMap.MapAddress, System.IO.SeekOrigin.Begin);
-                    // MobileUO: TODO: InlineArray feature is not available in Unity's C#
-                    var cells = indexMap.MapFile.ReadMapBlock()/*.Read<MapBlock>()*/.Cells;
-                    
+
+                    // PERFORMANCE FIX: Use direct pointer access instead of file I/O
+                    MapCells* cells = null;
+                    if (indexMap.MapAddress != 0)
+                    {
+                        byte* mapPtr = (byte*)indexMap.MapAddress;
+                        cells = (MapCells*)(mapPtr + 4); // Skip 4-byte header
+                    }
+
                     Chunk block = World.Map.GetChunk(blockIndex);
                     int realBlockX = i << 3;
                     int realBlockY = j << 3;
 
-
-                    for (int c = 0; c < indexMap.StaticCount; ++c)
+                    // PERFORMANCE FIX: Direct pointer access for statics
+                    if (indexMap.StaticAddress != 0 && indexMap.StaticCount > 0)
                     {
-                        var stblock = indexMap.StaticFile.Read<StaticsBlock>();
-                        if (stblock.Color > 0 && stblock.Color != 0xFFFF && GameObject.CanBeDrawn(World, stblock.Color))
+                        StaticsBlock* sb = (StaticsBlock*)indexMap.StaticAddress;
+
+                        for (int c = 0; c < indexMap.StaticCount; ++c, ++sb)
                         {
-                            ref var st = ref staticsZ[stblock.Y * 8 + stblock.X];
-                            if (st.Z < stblock.Z)
+                            if (sb->Color > 0 && sb->Color != 0xFFFF && GameObject.CanBeDrawn(World, sb->Color))
                             {
-                                st.Color = stblock.Hue > 0 ? (ushort)(stblock.Hue + 0x4000) : stblock.Color;
-                                st.Z = stblock.Z;
-                                st.IsLand = stblock.Hue > 0;
+                                ref var st = ref staticsZ[sb->Y * 8 + sb->X];
+                                if (st.Z < sb->Z)
+                                {
+                                    st.Color = sb->Hue > 0 ? (ushort)(sb->Hue + 0x4000) : sb->Color;
+                                    st.Z = sb->Z;
+                                    st.IsLand = sb->Hue > 0;
+                                }
                             }
                         }
                     }
 
-                    for (int x = 0; x < 8; x++)
+                    // Process cells if we have them
+                    if (cells != null)
                     {
-                        int px = realBlockX + x - lastX + gumpCenterX;
-
-                        for (int y = 0; y < 8; y++)
+                        for (int x = 0; x < 8; x++)
                         {
-                            ref readonly var cell = ref cells[(y << 3) + x];
-                            int color = cell.TileID;
-                            bool isLand = true;
-                            int z = cell.Z;
+                            int px = realBlockX + x - lastX + gumpCenterX;
 
-                            ref var stZ = ref staticsZ[y * 8 + x];
-                            if (stZ.Z >= z)
+                            for (int y = 0; y < 8; y++)
                             {
-                                z = stZ.Z;
-                                color = stZ.Color;
-                                isLand = stZ.IsLand;
-                            }
+                                ref readonly var cell = ref cells[(y << 3) + x];
+                                int color = cell.TileID;
+                                bool isLand = true;
+                                int z = cell.Z;
 
-                            if (block != null)
-                            {
-                                GameObject obj = block.Tiles[x, y];
-
-                                while (obj?.TNext != null)
+                                ref var stZ = ref staticsZ[y * 8 + x];
+                                if (stZ.Z >= z)
                                 {
-                                    obj = obj.TNext;
+                                    z = stZ.Z;
+                                    color = stZ.Color;
+                                    isLand = stZ.IsLand;
                                 }
 
-                                for (; obj != null; obj = obj.TPrevious)
+                                if (block != null)
                                 {
-                                    if (obj is Multi)
-                                    {
-                                        if (obj.Hue == 0)
-                                        {
-                                            color = obj.Graphic;
-                                            isLand = false;
-                                        }
-                                        else
-                                        {
-                                            color = obj.Hue + 0x4000;
-                                        }
+                                    GameObject obj = block.Tiles[x, y];
 
-                                        break;
+                                    while (obj?.TNext != null)
+                                    {
+                                        obj = obj.TNext;
+                                    }
+
+                                    for (; obj != null; obj = obj.TPrevious)
+                                    {
+                                        if (obj is Multi)
+                                        {
+                                            if (obj.Hue == 0)
+                                            {
+                                                color = obj.Graphic;
+                                                isLand = false;
+                                            }
+                                            else
+                                            {
+                                                color = obj.Hue + 0x4000;
+                                            }
+
+                                            break;
+                                        }
                                     }
                                 }
+
+                                if (!isLand)
+                                {
+                                    color += 0x4000;
+                                }
+
+                                int tableSize = 2;
+
+                                if (isLand && color > 0x4000)
+                                {
+                                    color = Client.Game.UO.FileManager.Hues.GetColor16(
+                                        16384,
+                                        (ushort)(color - 0x4000)
+                                    ); //28672 is an arbitrary position in hues.mul, is the 14 position in the range
+                                }
+                                else
+                                {
+                                    color = Client.Game.UO.FileManager.Hues.GetRadarColorData(color);
+                                }
+
+                                int py = realBlockY + y - lastY;
+                                int gx = px - py;
+                                int gy = px + py;
+
+                                CreatePixels(
+                                    data,
+                                    0x8000 | color,
+                                    gx,
+                                    gy,
+                                    Width,
+                                    Height,
+                                    table,
+                                    tableSize
+                                );
                             }
-
-                            if (!isLand)
-                            {
-                                color += 0x4000;
-                            }
-
-                            int tableSize = 2;
-
-                            if (isLand && color > 0x4000)
-                            {
-                                color = Client.Game.UO.FileManager.Hues.GetColor16(
-                                    16384,
-                                    (ushort)(color - 0x4000)
-                                ); //28672 is an arbitrary position in hues.mul, is the 14 position in the range
-                            }
-                            else
-                            {
-                                color = Client.Game.UO.FileManager.Hues.GetRadarColorData(color);
-                            }
-
-                            int py = realBlockY + y - lastY;
-                            int gx = px - py;
-                            int gy = px + py;
-
-                            CreatePixels(
-                                data,
-                                0x8000 | color,
-                                gx,
-                                gy,
-                                Width,
-                                Height,
-                                table,
-                                tableSize
-                            );
                         }
                     }
                 }
