@@ -42,7 +42,18 @@ MonoBehaviour:
     FileDownloadServerPort: 80
     ClientVersion: 7.0.10.3
     UseEncryption: 0
-    ClientPathForUnityEditor: 
+    ClientPathForUnityEditor:
+    AllFilesDownloaded: 0
+    PreferExternalStorage: 0
+    SupportedServer: 1
+  - Name: Game4World
+    UoServerUrl: ru.game4world.com
+    UoServerPort: 2593
+    FileDownloadServerUrl: game4world.com/launcher/downloads/UOClient.zip
+    FileDownloadServerPort: 443
+    ClientVersion: 7.0.98.1
+    UseEncryption: 0
+    ClientPathForUnityEditor:
     AllFilesDownloaded: 0
     PreferExternalStorage: 0
     SupportedServer: 1

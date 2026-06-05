@@ -97,7 +97,8 @@ public class ZipDownloader : DownloaderBase
 
     private static string GetFileNameFromUrl(string url)
     {
-        if (url.Contains("http://") == false)
+        if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+            !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
             url = "http://" + url;
         }
